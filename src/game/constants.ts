@@ -101,6 +101,13 @@ export const BOT = {
    *  Shortened to 10s so the hunt starts roughly twice as fast. */
   SPAWN_DELAY: 10,
   /**
+   * THE HORDE: seconds between each NEW monster after the first one.
+   * The first hunter arrives after SPAWN_DELAY; from then on one more
+   * materializes every SPAWN_INTERVAL seconds. There is NO CAP — the
+   * Backrooms keep manufacturing Nextbots until you are caught.
+   */
+  SPAWN_INTERVAL: 30,
+  /**
    * Spawn NEARNESS (meters, BFS path distance from the player's CURRENT
    * position at spawn time): the bot materializes 18-36m away instead of
    * at the far side of the map, so the hunt begins within seconds — you

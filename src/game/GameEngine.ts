@@ -11,10 +11,11 @@
  *
  *  The engine talks back through callbacks:
  *    onDeath(survivedMs)  -> React shows the jumpscare + game-over card
- *    onBotSpawned()       -> React flashes the "RUN." warning
+ *    onBotSpawned()       -> React flashes the "RUN." warning (EVERY spawn)
  *    onPause()            -> React shows the pause overlay
- *    onFrame(st, prox)    -> HUD updates (stamina bar / static overlay),
- *                            throttled DOM writes via refs, NOT React state
+ *    onFrame(st,prox,n)   -> HUD updates (stamina bar / danger vignette /
+ *                            horde counter), throttled DOM writes via refs,
+ *                            NOT React state
  * ============================================================================
  */
 
@@ -35,7 +36,7 @@ export interface EngineCallbacks {
   onBotSpawned: () => void;
   onPause: () => void;
   /** Called every rendered frame while playing (use refs, not setState!). */
-  onFrame: (stamina01: number, proximity01: number) => void;
+  onFrame: (stamina01: number, proximity01: number, botCount: number) => void;
 }
 
 export class GameEngine {
@@ -49,14 +50,20 @@ export class GameEngine {
   private level: LevelBuild | null = null;
   private lightPool!: LightPool;
   private player!: PlayerController;
-  private bot!: Nextbot;
+  /**
+   * THE HORDE: every natural spawn pushes another Nextbot here. The first
+   * arrives after BOT.SPAWN_DELAY; from then on one more materializes every
+   * BOT.SPAWN_INTERVAL seconds — there is NO CAP.
+   */
+  private bots: Nextbot[] = [];
+  /** Game-time clock at which the next natural spawn fires. */
+  private nextBotSpawnAt: number = BOT.SPAWN_DELAY;
   readonly audio = new AudioManager();
 
   private phase: EnginePhase = 'menu';
   private raf = 0;
   private lastTime = 0;
   private elapsedPlay = 0;
-  private botSpawned = false;
   private menuYaw = 0;
   /** Scratch vector for the per-frame camera direction (no per-frame GC). */
   private tmpDir = new THREE.Vector3();
@@ -108,7 +115,6 @@ export class GameEngine {
     );
     this.player.connect();
     this.player.controls.addEventListener('unlock', this.onPointerUnlock);
-    this.bot = new Nextbot(this.scene, this.monsterTexture);
 
     // ---- First maze (also serves as the animated menu backdrop) ---------------------
     this.buildRun();
@@ -124,7 +130,8 @@ export class GameEngine {
     // ---- DEV HOOK -------------------------------------------------------------
     // Exposes the engine on window.__backrooms in dev builds only, so the
     // chase can be tested/tuned from the browser console, e.g.:
-    //   __backrooms.debugForceSpawn()   // spawn the bot right in front of you
+    //   __backrooms.debugForceSpawn()   // add one more bot right in front of you
+    //   __backrooms.debugBotCount       // how many are hunting right now
     if (process.env.NODE_ENV === 'development') {
       (window as unknown as { __backrooms?: GameEngine }).__backrooms = this;
     }
@@ -165,13 +172,11 @@ export class GameEngine {
    */
   debugForceSpawn(dist = 10): void {
     if (this.phase !== 'playing') return;
-    this.botSpawned = true;
-    this.elapsedPlay = Math.max(this.elapsedPlay, BOT.SPAWN_DELAY);
     const dir = new THREE.Vector3();
     this.camera.getWorldDirection(dir);
     const p = this.camera.position.clone().addScaledVector(dir, dist);
-    this.bot.spawnAt(p.x, p.z);
-    this.audio.startMonsterLoop();
+    this.addBot(p.x, p.z);
+    this.consumeFirstSpawnSlot();
     this.callbacks.onBotSpawned();
   }
 
@@ -183,34 +188,48 @@ export class GameEngine {
    */
   debugNaturalSpawn(): void {
     if (this.phase !== 'playing') return;
-    this.botSpawned = true;
-    this.elapsedPlay = Math.max(this.elapsedPlay, BOT.SPAWN_DELAY);
     this.spawnBotNaturally();
+    this.consumeFirstSpawnSlot();
   }
 
-  /** Current bot distance (Infinity while dormant) — handy for console tuning. */
+  /** NEAREST bot distance (Infinity while none hunt) — console tuning aid. */
   get debugBotDistance(): number {
-    return this.bot.distance;
+    let d = Infinity;
+    for (const b of this.bots) d = Math.min(d, b.distance);
+    return d;
   }
 
-  /** DEV: current bot world position (null while dormant). */
+  /** DEV: how many monsters are hunting right now. */
+  get debugBotCount(): number {
+    return this.bots.length;
+  }
+
+  /** DEV: NEAREST bot world position (null while none hunt). */
   get debugBotPos(): { x: number; z: number } | null {
-    if (!this.botSpawned) return null;
-    const p = this.bot.sprite.position;
+    let best: Nextbot | null = null;
+    for (const b of this.bots) if (!best || b.distance < best.distance) best = b;
+    if (!best) return null;
+    const p = best.sprite.position;
     return { x: p.x, z: p.z };
   }
 
-  /** DEV: is the bot currently overlapping any wall collider? (should stay false) */
+  /** DEV: is ANY bot currently overlapping a wall collider? (should stay false) */
   get debugBotPenetrating(): boolean {
-    if (!this.botSpawned) return false;
-    const p = this.bot.sprite.position;
-    const boxes = this.level?.queryColliders(p.x, p.z) ?? [];
     const r = BOT.RADIUS;
-    return boxes.some((b) => {
-      const cx = clamp(p.x, b.minX, b.maxX);
-      const cz = clamp(p.z, b.minZ, b.maxZ);
-      return (p.x - cx) ** 2 + (p.z - cz) ** 2 < r * r;
-    });
+    for (const bot of this.bots) {
+      const p = bot.sprite.position;
+      const boxes = this.level?.queryColliders(p.x, p.z) ?? [];
+      if (
+        boxes.some((b) => {
+          const cx = clamp(p.x, b.minX, b.maxX);
+          const cz = clamp(p.z, b.minZ, b.maxZ);
+          return (p.x - cx) ** 2 + (p.z - cz) ** 2 < r * r;
+        })
+      ) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /** DEV: monster-voice snapshot (doppler verification without ears). */
@@ -239,7 +258,8 @@ export class GameEngine {
     this.player?.disconnect();
     this.level?.dispose();
     this.lightPool?.dispose();
-    this.bot?.dispose(this.scene);
+    for (const b of this.bots) b.dispose(this.scene);
+    this.bots = [];
     this.audio.dispose();
     disposeTextures();
     this.renderer?.dispose();
@@ -252,35 +272,62 @@ export class GameEngine {
   //  Internals
   // ===========================================================================
 
-  /** Generate a new maze + level and reset player/bot/timers. */
+  /** Generate a new maze + level and reset player/horde/timers. */
   private buildRun(): void {
     this.level?.dispose();
+    // Retire the whole horde — a fresh run always starts with zero monsters.
+    for (const b of this.bots) b.dispose(this.scene);
+    this.bots = [];
     this.maze = generateMaze((Math.random() * 1e9) | 0);
     this.level = buildLevel(this.scene, this.maze, this.textures);
-    // Hand the bot the fresh maze + wall colliders (it navigates around walls).
-    this.bot.setNav(this.maze, (x, z) => this.level?.queryColliders(x, z) ?? []);
     // Spawn near the center facing the longest open sightline.
     const spawnCell = this.pickSpawn();
     const spawn = this.maze.cellToWorld(spawnCell);
     this.player.spawn(spawn.x, spawn.z, spawnCell.yaw);
-    this.bot.hide();
     this.audio.resetMonster(); // guarantee no monster voice survives a restart
     this.elapsedPlay = 0;
-    this.botSpawned = false;
+    this.nextBotSpawnAt = BOT.SPAWN_DELAY;
   }
 
   /**
-   * The natural bot spawn: pick a cell a SHORT distance (BOT.SPAWN_DIST_
-   * MIN..MAX) from the player's CURRENT position, so the hunt starts within
-   * seconds — no more cross-map marches before it arrives.
+   * The natural spawn: pick a cell a SHORT distance (BOT.SPAWN_DIST_MIN..
+   * MAX) from the player's CURRENT position, so each new hunter arrives
+   * within seconds — no cross-map marches. Fires for the FIRST monster
+   * after SPAWN_DELAY and for every additional one each SPAWN_INTERVAL.
    */
   private spawnBotNaturally(): void {
     const pc = this.maze.worldToCell(this.camera.position.x, this.camera.position.z);
     const cell = pickBotSpawnNear(this.maze, pc);
     const p = this.maze.cellToWorld(cell);
-    this.bot.spawnAt(p.x, p.z);
-    this.audio.startMonsterLoop(); // its song gives it away from now on
+    this.addBot(p.x, p.z);
+  }
+
+  /**
+   * Create, wire up and unleash one more Nextbot at a world position.
+   * Bots are cheap (a sprite + a pathfinder each); there is no cap on
+   * how many can hunt at once.
+   */
+  private addBot(x: number, z: number): Nextbot {
+    const bot = new Nextbot(this.scene, this.monsterTexture);
+    // Hand it the CURRENT maze + wall colliders (it navigates around walls).
+    bot.setNav(this.maze, (bx, bz) => this.level?.queryColliders(bx, bz) ?? []);
+    bot.spawnAt(x, z);
+    this.bots.push(bot);
+    // The monster's song starts with the FIRST hunter; from the second one
+    // on, the single voice simply tracks whichever is closest (see loop).
+    if (this.bots.length === 1) this.audio.startMonsterLoop();
     this.callbacks.onBotSpawned();
+    return bot;
+  }
+
+  /**
+   * DEV-ONLY spawn helpers "steal" the first natural slot when they fire
+   * before SPAWN_DELAY, so the real scheduler doesn't double-spawn on top.
+   */
+  private consumeFirstSpawnSlot(): void {
+    if (this.bots.length === 1 && this.nextBotSpawnAt === BOT.SPAWN_DELAY) {
+      this.nextBotSpawnAt = this.elapsedPlay + BOT.SPAWN_INTERVAL;
+    }
   }
 
   private onPointerUnlock = (): void => {
@@ -360,43 +407,51 @@ export class GameEngine {
     if (this.phase === 'playing') {
       this.elapsedPlay += dt;
 
-      // ---- Grace period: pure exploration until the bot materializes --------
-      if (!this.botSpawned && this.elapsedPlay >= BOT.SPAWN_DELAY) {
-        this.botSpawned = true;
+      // ---- THE HORDE: first hunter after SPAWN_DELAY, then one more every
+      //      SPAWN_INTERVAL seconds — forever, with no cap. ----------------------
+      if (this.elapsedPlay >= this.nextBotSpawnAt) {
         this.spawnBotNaturally();
+        this.nextBotSpawnAt += BOT.SPAWN_INTERVAL;
       }
 
       // ---- Player -------------------------------------------------------------
       const state = this.player.update(dt);
 
-      // ---- Bot ----------------------------------------------------------------
+      // ---- Bots: update every hunter, track the NEAREST threat ----------------
       let proximity = 0;
-      if (this.botSpawned) {
-        const caught = this.bot.update(dt, this.camera.position);
-        proximity = clamp(1 - this.bot.distance / BOT.TENSION_RANGE, 0, 1);
+      let nearest: Nextbot | null = null;
+      let caughtByAny = false;
+      for (const b of this.bots) {
+        if (b.update(dt, this.camera.position)) caughtByAny = true;
+        if (!nearest || b.distance < nearest.distance) nearest = b;
+      }
+      if (nearest) {
+        proximity = clamp(1 - nearest.distance / BOT.TENSION_RANGE, 0, 1);
         this.player.setFear(proximity);
-        if (caught) {
-          this.die();
-        }
+      }
+      if (caughtByAny) {
+        this.die();
       }
 
       // ---- Atmosphere systems ----------------------------------------------------
       this.lightPool.update(t, dt, this.camera.position.x, this.camera.position.z, this.level!.panels);
       // Spatial data for the monster voice (doppler loudness / pan / muffle).
+      // The single song always tracks the NEAREST hunter — with a horde
+      // coming, the closest one is the one about to kill you.
       this.camera.getWorldDirection(this.tmpDir);
-      const bp = this.bot.sprite.position;
+      const bp = nearest ? nearest.sprite.position : null;
       this.audio.update({
-        botDist: this.bot.distance,
+        botDist: nearest ? nearest.distance : Infinity,
         buzz: this.lightPool.nearestFaultyBuzz,
-        botX: bp.x,
-        botZ: bp.z,
+        botX: bp ? bp.x : 0,
+        botZ: bp ? bp.z : 0,
         playerX: this.camera.position.x,
         playerZ: this.camera.position.z,
         fwdX: this.tmpDir.x,
         fwdZ: this.tmpDir.z,
       });
 
-      this.callbacks.onFrame(state.stamina01, proximity);
+      this.callbacks.onFrame(state.stamina01, proximity, this.bots.length);
     } else if (this.phase === 'menu') {
       // Idle menu backdrop: slow ghost-drift through the spawn corridor.
       this.menuYaw += dt * 0.06;

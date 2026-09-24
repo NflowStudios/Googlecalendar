@@ -27,8 +27,9 @@ const TIPS = [
   'Sprinting outruns it. Walking does not. Manage your stamina.',
   'Listen for its song. The louder it grows, the closer it is.',
   'It sounds sharper as it gains on you — the pitch bends when it closes in.',
+  'Every thirty seconds another one appears. There is no limit.',
   'The buzzing lights are not the only thing watching.',
-  'Distance is temporary. It always catches up.',
+  'Distance is temporary. They always catch up.',
 ];
 
 // ---- Volume settings (persisted in localStorage) -----------------------------
@@ -104,6 +105,7 @@ export default function BackroomsGame() {
   const engineRef = useRef<GameEngine | null>(null);
   const staminaRef = useRef<HTMLDivElement>(null);
   const vignetteRef = useRef<HTMLDivElement>(null);
+  const threatRef = useRef<HTMLParagraphElement>(null);
 
   const [ready, setReady] = useState(false);
   const [phase, setPhase] = useState<Phase>('menu');
@@ -140,11 +142,18 @@ export default function BackroomsGame() {
           window.setTimeout(() => setRunFlash(false), 2600);
         },
         onPause: () => setPhase('paused'),
-        onFrame: (stamina01, proximity01) => {
+        onFrame: (stamina01, proximity01, botCount) => {
           const el = staminaRef.current;
           if (el) {
             el.style.width = `${Math.max(3, stamina01 * 100)}%`;
             el.style.opacity = stamina01 > 0.999 ? '0.35' : '1';
+          }
+          // Horde counter — how many are hunting right now (blank during
+          // the grace period, before the first one materializes).
+          const th = threatRef.current;
+          if (th) {
+            const label = botCount > 0 ? `${botCount} HUNTING` : '';
+            if (th.textContent !== label) th.textContent = label;
           }
           // Red danger vignette — SUBTLE on purpose: edges only, the center
           // of your vision stays perfectly clear so you can always see the
@@ -233,6 +242,13 @@ export default function BackroomsGame() {
       {/* ======================= IN-GAME HUD ======================= */}
       {phase === 'playing' && (
         <div className="pointer-events-none absolute inset-0 z-10">
+          {/* Horde counter (how many monsters are hunting you) */}
+          <p
+            ref={threatRef}
+            aria-live="polite"
+            className="absolute top-5 left-1/2 -translate-x-1/2 text-[10px] font-bold tracking-[0.35em] text-red-400/80"
+          />
+
           {/* Stamina bar */}
           <div className="absolute bottom-6 left-1/2 w-60 -translate-x-1/2">
             <div className="h-1.5 w-full overflow-hidden rounded-full border border-amber-900/50 bg-black/60">

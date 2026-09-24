@@ -13,10 +13,14 @@ in here never stops hunting you.
 - **The Nextbot** — after a short grace period it materializes nearby and
   hunts you through the maze, navigating around walls. Break line of sight
   to buy time; sprinting outruns it, walking does not.
+- **THE HORDE** — every 30 seconds after the first spawn, **one more
+  Nextbot appears**, with **no limit**. A HUD counter (top center) shows
+  how many are hunting you. Survive as long as you can.
 - **Its song is your radar** — the monster's looped sound (Loop.mp3) is
   fully positional with a **doppler effect**: it gets louder as it closes
   in, the pitch sharpens while it gains on you, and it pans left/right so
-  you can hear exactly where it is. Headphones strongly recommended.
+  you can hear exactly where it is. The voice always tracks the NEAREST
+  hunter. Headphones strongly recommended.
 - **Catch** — when it reaches you: jumpscare.
 - **Sound settings** — MASTER / SOUNDS (room ambience, footsteps, scream) /
   MUSIC (the monster's song) sliders on the home screen and the pause
