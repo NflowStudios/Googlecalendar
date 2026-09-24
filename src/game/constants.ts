@@ -57,10 +57,11 @@ export const PLAYER = {
   /** How snappily velocity changes (higher = more arcade, lower = heavier). */
   ACCEL: 11,
   /** Stamina system (0..100). Sprinting drains, standing regens.
-   *  Relaxed drain for the open map: longer sustained runs across halls. */
+   *  GENEROUS tuning: a full bar sustains ~9s of sprinting and refills
+   *  from empty in under 4s — long escapes with quick recovery breaks. */
   STAMINA_MAX: 100,
-  STAMINA_DRAIN: 17, // per second while sprinting
-  STAMINA_REGEN: 16, // per second while not sprinting
+  STAMINA_DRAIN: 11, // per second while sprinting (~9s of full sprint)
+  STAMINA_REGEN: 26, // per second while not sprinting (empty->full in ~3.8s)
   STAMINA_MIN_TO_SPRINT: 4, // below this, sprint is disabled until 12 regens
   /** Head-bob amplitude (m) & footstep timing derive from move speed. */
   BOB_WALK: 0.032,
@@ -96,8 +97,9 @@ export const BOT = {
   WAYPOINT_REACH: 1.0,
   /** Horizontal distance (m) that counts as "caught" (needs line of sight). */
   CATCH_RADIUS: 1.15,
-  /** Grace period (s) before the bot spawns — pure exploration time. */
-  SPAWN_DELAY: 22,
+  /** Grace period (s) before the bot spawns — pure exploration time.
+   *  Shortened to 10s so the hunt starts roughly twice as fast. */
+  SPAWN_DELAY: 10,
   /**
    * Spawn NEARNESS (meters, BFS path distance from the player's CURRENT
    * position at spawn time): the bot materializes 18-36m away instead of
