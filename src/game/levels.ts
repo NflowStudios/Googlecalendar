@@ -14,6 +14,7 @@
  */
 
 import { asset } from './utils';
+import { WORLD } from './constants';
 
 /** Visual/audio skin of a level (the "mood"). */
 export interface LevelPalette {
@@ -40,6 +41,14 @@ export interface LevelPalette {
   ceilingStyle: 'office' | 'plain';
   /** Meters of wall one horizontal copy of the wall texture covers. */
   wallTextureW: number;
+  /**
+   * Meters of wall one VERTICAL copy of the wall texture covers.
+   * Level 0 uses the full wall height (3.6m) so the wallpaper's horizontal
+   * banding maps exactly once and stays intact; the Poolrooms uses the same
+   * value as wallTextureW so its tiles stay SQUARE (and slightly smaller
+   * than the floor's, so wall and floor read as different surfaces).
+   */
+  wallTextureH: number;
   /** Wall surface finish: 0.94 = matte wallpaper, ~0.35 = glossy tiles. */
   wallRoughness: number;
   /** Shallow water plane over the floor (null = dry level). */
@@ -94,6 +103,7 @@ export const LEVELS: readonly LevelDef[] = [
       floorRepeatMeters: 1.6,
       ceilingStyle: 'office',
       wallTextureW: 3.2,
+      wallTextureH: WORLD.WALL_H,
       wallRoughness: 0.94,
       water: null,
     },
@@ -122,7 +132,11 @@ export const LEVELS: readonly LevelDef[] = [
       floorStyle: 'tile',
       floorRepeatMeters: 2.4,
       ceilingStyle: 'plain',
-      wallTextureW: 2.4,
+      // 2.0m per texture copy / 8 tiles per copy = 0.25m square wall tiles —
+      // clearly visible like the floor's 0.30m tiles, but slightly smaller
+      // so the two surfaces stay distinct.
+      wallTextureW: 2.0,
+      wallTextureH: 2.0,
       wallRoughness: 0.35,
       water: { color: 0x7fd8e2, opacity: 0.24 },
     },

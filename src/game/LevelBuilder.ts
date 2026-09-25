@@ -257,12 +257,19 @@ export async function loadTextures(def: LevelDef): Promise<TextureBundle> {
   wallpaper.anisotropy = 8;
 
   // Floor texture: moist carpet for Level 0; the tile texture itself for
-  // the Poolrooms (walls and floor share the same tiling, at different
-  // scales — the floor uses texture.repeat, the walls use scaled UVs, so
-  // one THREE.Texture instance safely serves both).
+  // the Poolrooms. The floor drives density via texture.repeat while the
+  // walls use pre-scaled UVs — those two schemes CANNOT share one Texture
+  // instance (the floor's huge repeat would also multiply the wall UVs,
+  // shrinking the wall tiles to a blurry millimetre grid). A clone keeps
+  // the same GPU image (three shares the Source) but carries its own
+  // repeat, so walls stay at repeat (1,1) and keep their own scale.
   const carpet =
     def.palette.floorStyle === 'tile'
-      ? wallpaper
+      ? (() => {
+          const t = wallpaper.clone();
+          t.needsUpdate = true; // clone copies the shared image; force our own GPU slot
+          return t;
+        })()
       : makeCarpetTexture();
   carpet.wrapS = carpet.wrapT = THREE.RepeatWrapping;
   carpet.anisotropy = 8;
@@ -287,8 +294,10 @@ export function disposeTextures(): void {
 
 /** ----------------------------------------------------------------------------
  *  UV helper — scale a BoxGeometry's UVs so the wallpaper keeps a constant
- *  world-space density on every face (u repeats every texW meters, v maps
- *  once across the wall height so any horizontal banding stays intact).
+ *  world-space density on every face (u repeats every texW meters, v every
+ *  texH meters — Level 0 passes the full wall height so its wallpaper maps
+ *  exactly once vertically; the Poolrooms passes its tile width so the
+ *  wall tiles stay square).
  * -------------------------------------------------------------------------- */
 function scaleBoxUVs(geo: THREE.BoxGeometry, w: number, h: number, d: number, texW: number, texH: number): void {
   const uv = geo.attributes.uv as THREE.BufferAttribute;
@@ -400,7 +409,7 @@ export function buildLevel(
     /** Emit one wall box; also registers its collider. */
     const addBox = (cx: number, cz: number, w: number, h: number, d: number) => {
       const geo = new THREE.BoxGeometry(w, h, d);
-      scaleBoxUVs(geo, w, h, d, def.palette.wallTextureW, WALL_H);
+      scaleBoxUVs(geo, w, h, d, def.palette.wallTextureW, def.palette.wallTextureH);
       geo.translate(cx, WALL_H / 2, cz);
       boxes.push(geo);
       colliders.insert({
