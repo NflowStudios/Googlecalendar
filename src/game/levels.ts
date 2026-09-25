@@ -68,6 +68,13 @@ export interface LevelDef {
   blurb: string;
   /** Wall texture (public/textures/...). */
   wallpaper: string;
+  /**
+   * Optional dedicated FLOOR texture (public/textures/...). Tile floors
+   * use this instead of the wall texture when set — the Poolrooms keeps
+   * its tiles on the floor while the walls are a simple painted white.
+   * Falls back to `wallpaper` when omitted.
+   */
+  floorTexture?: string;
   /** The Nextbot's sprite image. */
   monster: string;
   /** Brightened monster image for the jumpscare flash. */
@@ -115,7 +122,8 @@ export const LEVELS: readonly LevelDef[] = [
     tagline: 'White tiles. Warm water. No exit.',
     blurb:
       'Sunlit corridors of white tile and still, shallow water. Calm on the surface — but the same hunt happens here, and the water carries every sound.',
-    wallpaper: asset('/textures/pooltiles.jpg'),
+    wallpaper: asset('/textures/poolwall.jpg'),
+    floorTexture: asset('/textures/pooltiles.jpg'),
     monster: asset('/textures/monster2.png'),
     monsterBright: asset('/textures/monster2_bright.png'),
     monsterLoop: asset('/audio/poolrooms-loop.mp3'),
@@ -132,12 +140,11 @@ export const LEVELS: readonly LevelDef[] = [
       floorStyle: 'tile',
       floorRepeatMeters: 2.4,
       ceilingStyle: 'plain',
-      // 2.0m per texture copy / 8 tiles per copy = 0.25m square wall tiles —
-      // clearly visible like the floor's 0.30m tiles, but slightly smaller
-      // so the two surfaces stay distinct.
+      // Walls are a simple painted white — no tiles, no pattern, so the UV
+      // scale only controls the size of the texture's subtle mottling.
       wallTextureW: 2.0,
       wallTextureH: 2.0,
-      wallRoughness: 0.35,
+      wallRoughness: 0.5,
       water: { color: 0x7fd8e2, opacity: 0.24 },
     },
   },

@@ -256,21 +256,20 @@ export async function loadTextures(def: LevelDef): Promise<TextureBundle> {
   wallpaper.wrapS = wallpaper.wrapT = THREE.RepeatWrapping;
   wallpaper.anisotropy = 8;
 
-  // Floor texture: moist carpet for Level 0; the tile texture itself for
-  // the Poolrooms. The floor drives density via texture.repeat while the
-  // walls use pre-scaled UVs — those two schemes CANNOT share one Texture
-  // instance (the floor's huge repeat would also multiply the wall UVs,
-  // shrinking the wall tiles to a blurry millimetre grid). A clone keeps
-  // the same GPU image (three shares the Source) but carries its own
-  // repeat, so walls stay at repeat (1,1) and keep their own scale.
-  const carpet =
-    def.palette.floorStyle === 'tile'
-      ? (() => {
-          const t = wallpaper.clone();
-          t.needsUpdate = true; // clone copies the shared image; force our own GPU slot
-          return t;
-        })()
-      : makeCarpetTexture();
+  // Floor texture: moist carpet for Level 0; tiles for the Poolrooms. A
+  // tile floor may use its OWN texture (def.floorTexture — Poolrooms keeps
+  // tiles on the floor while the walls are simple painted white), falling
+  // back to the wall texture. Either way it is loaded as a FRESH instance:
+  // the floor drives density via texture.repeat while the walls use
+  // pre-scaled UVs, and those two schemes must never share one Texture
+  // instance (the floor's huge repeat would also multiply the wall UVs).
+  let carpet: THREE.Texture;
+  if (def.palette.floorStyle === 'tile') {
+    carpet = await loader.loadAsync(def.floorTexture ?? def.wallpaper);
+    carpet.colorSpace = THREE.SRGBColorSpace;
+  } else {
+    carpet = makeCarpetTexture();
+  }
   carpet.wrapS = carpet.wrapT = THREE.RepeatWrapping;
   carpet.anisotropy = 8;
 
