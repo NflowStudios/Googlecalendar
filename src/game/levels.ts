@@ -26,7 +26,8 @@ export interface LevelPalette {
   lightColor: number;
   /**
    * Brightness of the roaming point lights relative to the default (1).
-   * The Basement runs ~0.55 — visibly dimmer than the levels above.
+   * The Basement runs ~0.75 — dimmer than the levels above, but lit
+   * well enough to navigate (raised from 0.55 on user feedback).
    */
   lightIntensity: number;
   /** Cheap global ambient light bed. */
@@ -178,13 +179,16 @@ export const LEVELS: readonly LevelDef[] = [
     palette: {
       fogColor: 0x0a0c0e,
       fogDensity: 0.055,
+      // Brightness raised ~33% -> ~45% of a normal level (x45/33 on every
+      // light source) per user feedback: still the darkest level, but the
+      // corridors are clearly readable now instead of swallowing detail.
       lightColor: 0xd9a86a,
-      lightIntensity: 0.55,
+      lightIntensity: 0.75,
       ambientColor: 0x30333a,
-      ambientIntensity: 0.3,
+      ambientIntensity: 0.41,
       hemiSky: 0x3a3e46,
       hemiGround: 0x101215,
-      hemiIntensity: 0.28,
+      hemiIntensity: 0.38,
       flickerRatio: 0.34,
       floorStyle: 'tile',
       floorRepeatMeters: 2.4,
