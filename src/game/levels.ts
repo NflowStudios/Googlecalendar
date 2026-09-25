@@ -24,6 +24,11 @@ export interface LevelPalette {
   fogDensity: number;
   /** Color of the point lights and ceiling panels. */
   lightColor: number;
+  /**
+   * Brightness of the roaming point lights relative to the default (1).
+   * The Basement runs ~0.55 — visibly dimmer than the levels above.
+   */
+  lightIntensity: number;
   /** Cheap global ambient light bed. */
   ambientColor: number;
   ambientIntensity: number;
@@ -33,12 +38,16 @@ export interface LevelPalette {
   hemiIntensity: number;
   /** Fraction of ceiling panels that are faulty / flicker. */
   flickerRatio: number;
-  /** Floor construction: moist carpet (Level 0) or glossy tiles. */
+  /** Floor construction: moist carpet (Level 0) or a custom textured floor. */
   floorStyle: 'carpet' | 'tile';
   /** World meters covered by one repeat of the floor texture. */
   floorRepeatMeters: number;
-  /** Ceiling construction: office tiles or plain white. */
-  ceilingStyle: 'office' | 'plain';
+  /** Floor surface finish (carpet 1.0, wet tiles 0.32, concrete ~0.85). */
+  floorRoughness: number;
+  /** Floor metalness (0 for organic floors, faint for wet concrete). */
+  floorMetalness: number;
+  /** Ceiling construction: office tiles, plain white, or bare concrete. */
+  ceilingStyle: 'office' | 'plain' | 'concrete';
   /** Meters of wall one horizontal copy of the wall texture covers. */
   wallTextureW: number;
   /**
@@ -100,6 +109,7 @@ export const LEVELS: readonly LevelDef[] = [
       fogColor: 0x8a7b45,
       fogDensity: 0.032,
       lightColor: 0xffe6ad,
+      lightIntensity: 1,
       ambientColor: 0x8a7d55,
       ambientIntensity: 0.55,
       hemiSky: 0x9a8b55,
@@ -108,6 +118,8 @@ export const LEVELS: readonly LevelDef[] = [
       flickerRatio: 0.16,
       floorStyle: 'carpet',
       floorRepeatMeters: 1.6,
+      floorRoughness: 1,
+      floorMetalness: 0,
       ceilingStyle: 'office',
       wallTextureW: 3.2,
       wallTextureH: WORLD.WALL_H,
@@ -131,6 +143,7 @@ export const LEVELS: readonly LevelDef[] = [
       fogColor: 0xbfe3e6,
       fogDensity: 0.02,
       lightColor: 0xeafcff,
+      lightIntensity: 1,
       ambientColor: 0x9fc4cc,
       ambientIntensity: 0.8,
       hemiSky: 0xd6f0f4,
@@ -139,6 +152,8 @@ export const LEVELS: readonly LevelDef[] = [
       flickerRatio: 0.05,
       floorStyle: 'tile',
       floorRepeatMeters: 2.4,
+      floorRoughness: 0.32,
+      floorMetalness: 0.06,
       ceilingStyle: 'plain',
       // Walls are a simple painted white — no tiles, no pattern, so the UV
       // scale only controls the size of the texture's subtle mottling.
@@ -146,6 +161,40 @@ export const LEVELS: readonly LevelDef[] = [
       wallTextureH: 2.0,
       wallRoughness: 0.5,
       water: { color: 0x7fd8e2, opacity: 0.24 },
+    },
+  },
+  {
+    id: 'basement',
+    code: 'LEVEL 6',
+    name: 'THE BASEMENT',
+    tagline: 'Old concrete. Dying bulbs. No way up.',
+    blurb:
+      'A forgotten sub-level of stained concrete and guttering light. The dark swallows your footsteps here — and it hears everything.',
+    wallpaper: asset('/textures/concrete.jpg'),
+    floorTexture: asset('/textures/concrete_floor.jpg'),
+    monster: asset('/textures/monster3.png'),
+    monsterBright: asset('/textures/monster3_bright.png'),
+    monsterLoop: asset('/audio/basement-loop.mp3'),
+    palette: {
+      fogColor: 0x0a0c0e,
+      fogDensity: 0.055,
+      lightColor: 0xd9a86a,
+      lightIntensity: 0.55,
+      ambientColor: 0x30333a,
+      ambientIntensity: 0.3,
+      hemiSky: 0x3a3e46,
+      hemiGround: 0x101215,
+      hemiIntensity: 0.28,
+      flickerRatio: 0.34,
+      floorStyle: 'tile',
+      floorRepeatMeters: 2.4,
+      floorRoughness: 0.85,
+      floorMetalness: 0.02,
+      ceilingStyle: 'concrete',
+      wallTextureW: 2.0,
+      wallTextureH: 2.0,
+      wallRoughness: 0.92,
+      water: null,
     },
   },
 ];

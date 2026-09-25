@@ -274,7 +274,14 @@ export async function loadTextures(def: LevelDef): Promise<TextureBundle> {
   carpet.anisotropy = 8;
 
   const ceiling =
-    def.palette.ceilingStyle === 'plain' ? makePlainCeilingTexture() : makeCeilingTexture();
+    def.palette.ceilingStyle === 'concrete'
+      ? await loader.loadAsync(def.wallpaper) // bare concrete soffit — same
+      // material as the walls, loaded FRESH (the ceiling drives density via
+      // texture.repeat; sharing the wall's instance would corrupt its UVs)
+      : def.palette.ceilingStyle === 'plain'
+        ? makePlainCeilingTexture()
+        : makeCeilingTexture();
+  ceiling.colorSpace = THREE.SRGBColorSpace;
   ceiling.wrapS = ceiling.wrapT = THREE.RepeatWrapping;
   ceiling.anisotropy = 8;
 
@@ -379,11 +386,11 @@ export function buildLevel(
     const geo = new THREE.PlaneGeometry(W, W);
     geo.rotateX(-Math.PI / 2);
     textures.carpet.repeat.set(W / def.palette.floorRepeatMeters, W / def.palette.floorRepeatMeters);
-    // Carpet is dead matte; wet pool tiles carry a sheen.
+    // Surface finish is per-level (wet tiles gloss, concrete stays matte).
     const mat = new THREE.MeshStandardMaterial({
       map: textures.carpet,
-      roughness: def.palette.floorStyle === 'tile' ? 0.32 : 1,
-      metalness: def.palette.floorStyle === 'tile' ? 0.06 : 0,
+      roughness: def.palette.floorRoughness,
+      metalness: def.palette.floorMetalness,
     });
     group.add(new THREE.Mesh(geo, mat));
     disposables.push(geo, mat);

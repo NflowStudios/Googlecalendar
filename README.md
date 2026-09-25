@@ -11,11 +11,13 @@ in here never stops hunting you.
 - **First-person controls** — WASD to move, mouse to look, SHIFT to sprint
   (stamina is limited), ESC to pause.
 - **LEVELS** — browse the level list from the main menu and pick where to
-  dive in (the menu backdrop previews your selection). Two are available:
+  dive in (the menu backdrop previews your selection). Three are available:
   - **LEVEL 0 — THE BACKROOMS**: the classic yellow office halls, moist
     carpet, buzzing fluorescent lights.
   - **LEVEL 37 — THE POOLROOMS**: white-tiled corridors of still, shallow
     water, bright and wrong in its own way.
+  - **LEVEL 6 — THE BASEMENT**: an old, dark sub-level of stained concrete
+    and dying bulbs — the lights down here barely reach the next wall.
   The pause screen's **RETURN TO MENU** takes you back to browse levels at
   any time.
 - **The Nextbot** — after a short grace period it materializes nearby and

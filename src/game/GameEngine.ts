@@ -374,7 +374,7 @@ export class GameEngine {
     this.hemiLight.color.setHex(def.palette.hemiSky);
     this.hemiLight.groundColor.setHex(def.palette.hemiGround);
     this.hemiLight.intensity = def.palette.hemiIntensity;
-    this.lightPool.setLightColor(def.palette.lightColor);
+    this.lightPool.setLightColor(def.palette.lightColor, def.palette.lightIntensity);
 
     this.maze = generateMaze((Math.random() * 1e9) | 0);
     this.level = buildLevel(this.scene, this.maze, this.textures, def);

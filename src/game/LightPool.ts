@@ -25,6 +25,8 @@ export class LightPool {
   private lights: THREE.PointLight[] = [];
   private assignTimer = 0;
   private assigned: LightPanel[] = [];
+  /** Brightness of the pool lights (buildRun() scales it per level). */
+  private baseIntensity = 34;
   /** 0..1 flicker amount of the nearest faulty panel (drives audio buzz). */
   public nearestFaultyBuzz = 0;
 
@@ -37,9 +39,13 @@ export class LightPool {
     }
   }
 
-  /** Re-tint every pool light for the level being built. */
-  setLightColor(color: number): void {
-    for (const light of this.lights) light.color.setHex(color);
+  /** Re-tint (and re-scale) every pool light for the level being built. */
+  setLightColor(color: number, intensityScale = 1): void {
+    this.baseIntensity = 34 * intensityScale;
+    for (const light of this.lights) {
+      light.color.setHex(color);
+      light.intensity = this.baseIntensity;
+    }
   }
 
   /**
@@ -84,7 +90,7 @@ export class LightPool {
     // Point lights gently shimmer; lights sitting on faulty panels stutter.
     this.lights.forEach((light, i) => {
       const p = this.assigned[i];
-      let intensity = 34 * (0.94 + 0.06 * Math.sin(t * 40 + i * 2.1));
+      let intensity = this.baseIntensity * (0.94 + 0.06 * Math.sin(t * 40 + i * 2.1));
       if (p?.faulty && p.material) {
         intensity *= clamp(p.material.color.r, 0, 1) * 0.9 + 0.1;
       }
