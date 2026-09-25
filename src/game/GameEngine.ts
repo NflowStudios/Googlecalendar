@@ -4,14 +4,17 @@
  *  subsystems, and exposes a tiny imperative API to the React UI layer.
  * ============================================================================
  *  FLOW
- *    GameEngine.create(container)   async factory (loads textures)
- *    engine.beginPlay()             menu -> playing (builds/resets the maze)
- *    engine.resume()                paused -> playing (re-locks the pointer)
- *    engine.dispose()               full teardown
+ *    GameEngine.create(container)   async factory (loads ALL levels' assets)
+ *    engine.beginPlay(levelId?)      menu -> playing (builds/resets the maze)
+ *    engine.resume()                 paused -> playing (re-locks the pointer)
+ *    engine.returnToMenu()           any -> menu (retires the horde, backdrop
+ *                                      becomes the level you just played)
+ *    engine.dispose()                full teardown
  *
  *  The engine talks back through callbacks:
  *    onDeath(survivedMs)  -> React shows the jumpscare + game-over card
  *    onBotSpawned()       -> React flashes the "RUN." warning (EVERY spawn)
+ *    onMenu()             -> React returns to the main menu
  *    onPause()            -> React shows the pause overlay
  *    onFrame(st,prox,n)   -> HUD updates (stamina bar / danger vignette /
  *                            horde counter), throttled DOM writes via refs,
@@ -20,20 +23,29 @@
  */
 
 import * as THREE from 'three';
-import { ATMOS, BOT, PLAYER, WORLD } from './constants';
+import { BOT, PLAYER, WORLD } from './constants';
 import { clamp } from './utils';
 import { generateMaze, pickBotSpawnNear, type MazeData } from './MazeGenerator';
-import { buildLevel, loadTextures, disposeTextures, type LevelBuild, type TextureBundle } from './LevelBuilder';
+import {
+  buildLevel,
+  loadTextures,
+  disposeTextures,
+  type LevelBuild,
+  type TextureBundle,
+} from './LevelBuilder';
 import { LightPool } from './LightPool';
 import { PlayerController } from './PlayerController';
-import { Nextbot, loadMonsterTexture } from './Nextbot';
+import { Nextbot, loadMonsterTexture, disposeMonsterTextures } from './Nextbot';
 import { AudioManager } from './AudioManager';
+import { LEVELS, getLevel, DEFAULT_LEVEL_ID, type LevelDef } from './levels';
 
 export type EnginePhase = 'menu' | 'playing' | 'paused' | 'dead';
 
 export interface EngineCallbacks {
   onDeath: (survivedMs: number) => void;
   onBotSpawned: () => void;
+  /** Engine returned to the menu (RETURN TO MENU button). */
+  onMenu: () => void;
   onPause: () => void;
   /** Called every rendered frame while playing (use refs, not setState!). */
   onFrame: (stamina01: number, proximity01: number, botCount: number) => void;
@@ -46,6 +58,12 @@ export class GameEngine {
 
   private textures!: TextureBundle;
   private monsterTexture!: THREE.Texture;
+  /** Every level's texture bundle, preloaded at init (keyed by level id). */
+  private readonly texturesByLevel = new Map<string, TextureBundle>();
+  /** Every level's monster sprite texture, preloaded at init. */
+  private readonly monsterTextures = new Map<string, THREE.Texture>();
+  /** The level currently built/being played. */
+  private levelDef: LevelDef = getLevel(DEFAULT_LEVEL_ID);
   private maze!: MazeData;
   private level: LevelBuild | null = null;
   private lightPool!: LightPool;
@@ -73,7 +91,12 @@ export class GameEngine {
     private callbacks: EngineCallbacks
   ) {}
 
-  /** Async factory — loads all textures exactly once. */
+  /** The level that is currently built (menu backdrop or active hunt). */
+  get currentLevel(): LevelDef {
+    return this.levelDef;
+  }
+
+  /** Async factory — loads ALL levels' assets exactly once. */
   static async create(container: HTMLElement, callbacks: EngineCallbacks): Promise<GameEngine> {
     const engine = new GameEngine(container, callbacks);
     await engine.init();
@@ -87,23 +110,38 @@ export class GameEngine {
     this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.08;
-    this.renderer.setClearColor(ATMOS.FOG_COLOR);
+    this.renderer.setClearColor(this.levelDef.palette.fogColor);
     this.container.appendChild(this.renderer.domElement);
 
     // ---- Scene + camera --------------------------------------------------------
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.FogExp2(ATMOS.FOG_COLOR, ATMOS.FOG_DENSITY);
+    this.scene.fog = new THREE.FogExp2(this.levelDef.palette.fogColor, this.levelDef.palette.fogDensity);
     this.camera = new THREE.PerspectiveCamera(PLAYER.FOV, 1, 0.1, 60);
 
     // Cheap global light bed so nothing is ever pitch black; the LightPool's
-    // warm point lights do the actual "fluorescent" work on top of this.
-    this.scene.add(new THREE.AmbientLight(0x8a7d55, 0.55));
-    this.scene.add(new THREE.HemisphereLight(0x9a8b55, 0x35301f, 0.5));
+    // point lights do the actual "fixture" work on top of this. Colors are
+    // per-level — buildRun() retints them every time a level is built.
+    this.ambientLight = new THREE.AmbientLight(this.levelDef.palette.ambientColor, this.levelDef.palette.ambientIntensity);
+    this.hemiLight = new THREE.HemisphereLight(
+      this.levelDef.palette.hemiSky,
+      this.levelDef.palette.hemiGround,
+      this.levelDef.palette.hemiIntensity
+    );
+    this.scene.add(this.ambientLight, this.hemiLight);
 
-    // ---- Assets ------------------------------------------------------------------
-    const [textures, monsterTexture] = await Promise.all([loadTextures(), loadMonsterTexture()]);
-    this.textures = textures;
-    this.monsterTexture = monsterTexture;
+    // ---- Assets (EVERY level, so switching levels is instant) ------------------
+    await Promise.all(
+      LEVELS.map(async (def) => {
+        const [bundle, monster] = await Promise.all([
+          loadTextures(def),
+          loadMonsterTexture(def.monster),
+        ]);
+        this.texturesByLevel.set(def.id, bundle);
+        this.monsterTextures.set(def.id, monster);
+      })
+    );
+    this.textures = this.texturesByLevel.get(DEFAULT_LEVEL_ID)!;
+    this.monsterTexture = this.monsterTextures.get(DEFAULT_LEVEL_ID)!;
 
     // ---- Subsystems -----------------------------------------------------------------
     this.lightPool = new LightPool(this.scene);
@@ -138,18 +176,55 @@ export class GameEngine {
   }
 
   private ro!: ResizeObserver;
+  private ambientLight!: THREE.AmbientLight;
+  private hemiLight!: THREE.HemisphereLight;
 
   // ===========================================================================
   //  Public API (called by React)
   // ===========================================================================
 
-  /** Menu "PLAY" (or death-screen "TRY AGAIN") — must be a user gesture. */
-  beginPlay(): void {
+  /**
+   * Menu "PLAY" (or death-screen "TRY AGAIN") — must be a user gesture.
+   * Pass a level id to play that level; without one, the current level is
+   * rebuilt (TRY AGAIN behavior).
+   */
+  beginPlay(levelId?: string): void {
+    if (levelId) this.levelDef = getLevel(levelId);
     this.audio.init();
     this.audio.resume();
     this.buildRun(); // fresh maze every run
     this.phase = 'playing';
     this.player.controls.lock(); // if the browser refuses, we still play
+  }
+
+  /**
+   * RETURN TO MENU (pause screen / death screen): retire the horde, rebuild
+   * the current level as the animated menu backdrop, and hand control back
+   * to the main menu UI.
+   */
+  returnToMenu(): void {
+    if (this.phase === 'menu') return;
+    // Set the phase BEFORE unlocking the pointer — onPointerUnlock only
+    // triggers the pause overlay while phase === 'playing'.
+    this.phase = 'menu';
+    this.player.freeze();
+    this.player.controls.unlock(); // releases the mouse for the menu
+    this.audio.resume(); // keep the room beds murmuring under the menu
+    this.buildRun();
+    this.menuYaw = Math.random() * Math.PI * 2;
+    this.callbacks.onMenu();
+  }
+
+  /**
+   * Level-browser select (menu only): rebuild the chosen level as the
+   * animated menu backdrop. Starting a run is still PLAY's job — this just
+   * lets you SEE the level you picked before you dive in.
+   */
+  previewLevel(levelId: string): void {
+    if (this.phase !== 'menu') return;
+    if (this.levelDef.id === levelId) return;
+    this.levelDef = getLevel(levelId);
+    this.buildRun();
   }
 
   /** Pause overlay click — re-capture the pointer. */
@@ -246,6 +321,11 @@ export class GameEngine {
     return this.audio.debugMonster;
   }
 
+  /** DEV: which level is currently built. */
+  get debugLevelId(): string {
+    return this.levelDef.id;
+  }
+
   /** DEV: mixer snapshot (master / sounds / music bus gains). */
   get debugVolumes(): AudioManager['debugVolumes'] {
     return this.audio.debugVolumes;
@@ -262,6 +342,7 @@ export class GameEngine {
     this.bots = [];
     this.audio.dispose();
     disposeTextures();
+    disposeMonsterTextures();
     this.renderer?.dispose();
     if (this.renderer?.domElement.parentElement === this.container) {
       this.container.removeChild(this.renderer.domElement);
@@ -272,19 +353,39 @@ export class GameEngine {
   //  Internals
   // ===========================================================================
 
-  /** Generate a new maze + level and reset player/horde/timers. */
+  /**
+   * Generate a new maze + level and reset player/horde/timers. Builds the
+   * CURRENT level (this.levelDef) — beginPlay() picks it first.
+   */
   private buildRun(): void {
     this.level?.dispose();
     // Retire the whole horde — a fresh run always starts with zero monsters.
     for (const b of this.bots) b.dispose(this.scene);
     this.bots = [];
+
+    // ---- Per-level skin: assets, fog, lights --------------------------------
+    const def = this.levelDef;
+    this.textures = this.texturesByLevel.get(def.id)!;
+    this.monsterTexture = this.monsterTextures.get(def.id)!;
+    this.renderer.setClearColor(def.palette.fogColor);
+    this.scene.fog = new THREE.FogExp2(def.palette.fogColor, def.palette.fogDensity);
+    this.ambientLight.color.setHex(def.palette.ambientColor);
+    this.ambientLight.intensity = def.palette.ambientIntensity;
+    this.hemiLight.color.setHex(def.palette.hemiSky);
+    this.hemiLight.groundColor.setHex(def.palette.hemiGround);
+    this.hemiLight.intensity = def.palette.hemiIntensity;
+    this.lightPool.setLightColor(def.palette.lightColor);
+
     this.maze = generateMaze((Math.random() * 1e9) | 0);
-    this.level = buildLevel(this.scene, this.maze, this.textures);
+    this.level = buildLevel(this.scene, this.maze, this.textures, def);
     // Spawn near the center facing the longest open sightline.
     const spawnCell = this.pickSpawn();
     const spawn = this.maze.cellToWorld(spawnCell);
     this.player.spawn(spawn.x, spawn.z, spawnCell.yaw);
-    this.audio.resetMonster(); // guarantee no monster voice survives a restart
+    // The monster's song is per-level — swap it and guarantee no voice
+    // from the previous level survives the switch.
+    this.audio.setMonsterLoop(def.monsterLoop);
+    this.audio.resetMonster();
     this.elapsedPlay = 0;
     this.nextBotSpawnAt = BOT.SPAWN_DELAY;
   }
@@ -308,6 +409,7 @@ export class GameEngine {
    * how many can hunt at once.
    */
   private addBot(x: number, z: number): Nextbot {
+    // The CURRENT level's monster texture (monster.png / monster2.png / ...).
     const bot = new Nextbot(this.scene, this.monsterTexture);
     // Hand it the CURRENT maze + wall colliders (it navigates around walls).
     bot.setNav(this.maze, (bx, bz) => this.level?.queryColliders(bx, bz) ?? []);
@@ -403,6 +505,11 @@ export class GameEngine {
     const dt = clamp((now - this.lastTime) / 1000, 0, 0.05);
     this.lastTime = now;
     const t = now / 1000;
+
+    // ---- Poolrooms water: slow caustics drift (menu + playing) -----------------
+    if (this.level?.water) {
+      this.level.water.texture.offset.set(t * 0.008, t * 0.011);
+    }
 
     if (this.phase === 'playing') {
       this.elapsedPlay += dt;

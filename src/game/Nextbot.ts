@@ -28,7 +28,7 @@
 
 import * as THREE from 'three';
 import { BOT } from './constants';
-import { asset, clamp, lerp } from './utils';
+import { clamp, lerp } from './utils';
 import type { AABB } from './LevelBuilder';
 import type { MazeData } from './MazeGenerator';
 import { Pathfinder, type Waypoint } from './Pathfinder';
@@ -315,11 +315,20 @@ export class Nextbot {
   }
 }
 
-/** Load + cache the monster texture (public/textures/monster.png). */
-let monsterTex: THREE.Texture | null = null;
-export async function loadMonsterTexture(): Promise<THREE.Texture> {
-  if (monsterTex) return monsterTex;
-  monsterTex = await new THREE.TextureLoader().loadAsync(asset('/textures/monster.png'));
-  monsterTex.colorSpace = THREE.SRGBColorSpace;
-  return monsterTex;
+/** Load + cache a monster texture, one per level
+ *  (public/textures/monster.png, monster2.png, ...). */
+const monsterTexCache = new Map<string, THREE.Texture>();
+export async function loadMonsterTexture(url: string): Promise<THREE.Texture> {
+  const cached = monsterTexCache.get(url);
+  if (cached) return cached;
+  const tex = await new THREE.TextureLoader().loadAsync(url);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  monsterTexCache.set(url, tex);
+  return tex;
+}
+
+/** Dispose every cached monster texture (only on full engine teardown). */
+export function disposeMonsterTextures(): void {
+  for (const tex of monsterTexCache.values()) tex.dispose();
+  monsterTexCache.clear();
 }

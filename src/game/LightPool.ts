@@ -30,10 +30,16 @@ export class LightPool {
 
   constructor(private scene: THREE.Scene) {
     for (let i = 0; i < ATMOS.LIGHT_POOL_SIZE; i++) {
-      const light = new THREE.PointLight(ATMOS.LIGHT_COLOR, 34, 11, 2);
+      // Warm fluorescent default — buildRun() retints per level.
+      const light = new THREE.PointLight(0xffe6ad, 34, 11, 2);
       scene.add(light);
       this.lights.push(light);
     }
+  }
+
+  /** Re-tint every pool light for the level being built. */
+  setLightColor(color: number): void {
+    for (const light of this.lights) light.color.setHex(color);
   }
 
   /**

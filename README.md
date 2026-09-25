@@ -10,17 +10,27 @@ in here never stops hunting you.
 
 - **First-person controls** — WASD to move, mouse to look, SHIFT to sprint
   (stamina is limited), ESC to pause.
+- **LEVELS** — browse the level list from the main menu and pick where to
+  dive in (the menu backdrop previews your selection). Two are available:
+  - **LEVEL 0 — THE BACKROOMS**: the classic yellow office halls, moist
+    carpet, buzzing fluorescent lights.
+  - **LEVEL 37 — THE POOLROOMS**: white-tiled corridors of still, shallow
+    water, bright and wrong in its own way.
+  The pause screen's **RETURN TO MENU** takes you back to browse levels at
+  any time.
 - **The Nextbot** — after a short grace period it materializes nearby and
   hunts you through the maze, navigating around walls. Break line of sight
-  to buy time; sprinting outruns it, walking does not.
+  to buy time; sprinting outruns it, walking does not. Every level has its
+  own monster — same mechanics, different face and song.
 - **THE HORDE** — every 30 seconds after the first spawn, **one more
   Nextbot appears**, with **no limit**. A HUD counter (top center) shows
   how many are hunting you. Survive as long as you can.
-- **Its song is your radar** — the monster's looped sound (Loop.mp3) is
+- **Its song is your radar** — the monster's looped sound is
   fully positional with a **doppler effect**: it gets louder as it closes
   in, the pitch sharpens while it gains on you, and it pans left/right so
   you can hear exactly where it is. The voice always tracks the NEAREST
-  hunter. Headphones strongly recommended.
+  hunter, and each level ships its own song. Headphones strongly
+  recommended.
 - **Catch** — when it reaches you: jumpscare.
 - **Sound settings** — MASTER / SOUNDS (room ambience, footsteps, scream) /
   MUSIC (the monster's song) sliders on the home screen and the pause
@@ -34,6 +44,8 @@ in here never stops hunting you.
   voice, procedural room ambience
 - Procedural maze generation (seeded, BFS-validated) — every run is a new
   layout
+- Data-driven level catalog (`src/game/levels.ts`) — a level is one entry
+  plus its texture/audio files; engine mechanics are shared
 
 ## Run it locally
 

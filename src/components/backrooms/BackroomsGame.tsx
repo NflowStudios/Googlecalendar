@@ -18,7 +18,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import type { GameEngine } from '@/game/GameEngine';
 import type { VolumeSettings } from '@/game/AudioManager';
-import { asset, formatTime } from '@/game/utils';
+import { LEVELS, DEFAULT_LEVEL_ID, getLevel } from '@/game/levels';
+import { formatTime } from '@/game/utils';
 
 type Phase = 'menu' | 'playing' | 'paused' | 'dead';
 
@@ -51,6 +52,63 @@ function loadVolumes(): VolumeSettings {
   } catch {
     return { ...DEFAULT_VOLUMES };
   }
+}
+
+/**
+ * LEVELS — the level browser. Each card shows the level's code, name and
+ * a short description; clicking selects it (the PLAY button and the menu
+ * backdrop react immediately). The selected card is highlighted.
+ */
+function LevelBrowser({
+  selectedId,
+  onSelect,
+}: {
+  selectedId: string;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <div className="w-[26rem] space-y-3 border border-amber-500/25 bg-black/70 px-6 py-6 backdrop-blur-sm">
+      <p className="text-center text-[10px] tracking-[0.4em] text-amber-100/40">LEVELS</p>
+      {LEVELS.map((l) => {
+        const selected = l.id === selectedId;
+        return (
+          <button
+            key={l.id}
+            type="button"
+            onClick={() => onSelect(l.id)}
+            className={`block w-full border px-5 py-4 text-left transition-colors ${
+              selected
+                ? 'border-amber-400/70 bg-amber-500/15'
+                : 'border-amber-500/20 bg-transparent hover:border-amber-500/45 hover:bg-amber-500/5'
+            }`}
+          >
+            <div className="flex items-baseline justify-between">
+              <span
+                className={`text-[11px] font-bold tracking-[0.3em] ${
+                  selected ? 'text-amber-200' : 'text-amber-100/70'
+                }`}
+              >
+                {l.code}
+              </span>
+              {selected && (
+                <span className="text-[9px] tracking-[0.3em] text-amber-300/80">SELECTED</span>
+              )}
+            </div>
+            <span
+              className={`mt-1 block text-sm font-black tracking-[0.15em] ${
+                selected ? 'text-amber-100' : 'text-amber-100/60'
+              }`}
+            >
+              {l.name}
+            </span>
+            <span className="mt-1.5 block text-[11px] leading-relaxed text-amber-100/40">
+              {l.blurb}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 /**
@@ -116,10 +174,17 @@ export default function BackroomsGame() {
   const [tip, setTip] = useState(TIPS[0]);
   /** Home-screen settings panel toggle. */
   const [showSettings, setShowSettings] = useState(false);
+  /** Home-screen level browser toggle. */
+  const [showLevels, setShowLevels] = useState(false);
+  /** The level the PLAY button will enter (defaults to Level 0). */
+  const [levelId, setLevelId] = useState(DEFAULT_LEVEL_ID);
   /** The three mixer sliders (master / sounds / music). */
   const [volumes, setVolumesState] = useState<VolumeSettings>({ ...DEFAULT_VOLUMES });
   /** Mirror of `volumes` readable from the engine-mount effect without deps. */
   const volumesRef = useRef<VolumeSettings>({ ...DEFAULT_VOLUMES });
+
+  /** The level selected in the browser (drives button text + jumpscare img). */
+  const level = getLevel(levelId);
 
   // ---- Mount / unmount the engine --------------------------------------------
   useEffect(() => {
@@ -142,6 +207,12 @@ export default function BackroomsGame() {
           window.setTimeout(() => setRunFlash(false), 2600);
         },
         onPause: () => setPhase('paused'),
+        onMenu: () => {
+          setPhase('menu');
+          setShowCard(false);
+          setRunFlash(false);
+          setHint(false);
+        },
         onFrame: (stamina01, proximity01, botCount) => {
           const el = staminaRef.current;
           if (el) {
@@ -194,11 +265,16 @@ export default function BackroomsGame() {
 
   // ---- Actions --------------------------------------------------------------------
   const play = useCallback(() => {
-    engineRef.current?.beginPlay();
+    engineRef.current?.beginPlay(levelId);
     setPhase('playing');
     setShowCard(false);
     setHint(true);
     window.setTimeout(() => setHint(false), 12000);
+  }, [levelId]);
+
+  /** Pause / death screen "back to the main menu" button. */
+  const toMenu = useCallback(() => {
+    engineRef.current?.returnToMenu();
   }, []);
 
   const resume = useCallback(() => {
@@ -288,6 +364,9 @@ export default function BackroomsGame() {
           >
             THE BACKROOMS
           </h1>
+          <p className="mt-2 text-[10px] tracking-[0.45em] text-amber-100/40">
+            {level.code} &mdash; {level.name} SELECTED
+          </p>
           <p className="mt-5 max-w-md text-sm leading-relaxed text-amber-100/60">
             You noclipped out of reality. The hum. The yellow. Something else
             is in here with you &mdash; and it never stops hunting.
@@ -299,17 +378,52 @@ export default function BackroomsGame() {
             onClick={play}
             className="mt-10 border border-amber-500/40 bg-amber-500/10 text-amber-200 tracking-[0.3em] hover:bg-amber-500/25"
           >
-            {ready ? 'ENTER LEVEL 0' : 'LOADING\u2026'}
+            {ready ? `ENTER ${level.code}` : 'LOADING\u2026'}
           </Button>
 
-          {/* Sound settings toggle */}
-          <button
-            type="button"
-            onClick={() => setShowSettings((s) => !s)}
-            className="mt-5 border border-amber-500/25 bg-transparent px-5 py-1.5 text-[10px] tracking-[0.3em] text-amber-100/50 transition-colors hover:border-amber-500/50 hover:text-amber-100/85"
-          >
-            {showSettings ? 'HIDE SETTINGS' : 'SETTINGS'}
-          </button>
+          {/* Level browser + sound settings toggles */}
+          <div className="mt-5 flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                setShowLevels((s) => !s);
+                setShowSettings(false);
+              }}
+              className={`border px-5 py-1.5 text-[10px] tracking-[0.3em] transition-colors ${
+                showLevels
+                  ? 'border-amber-400/60 text-amber-200'
+                  : 'border-amber-500/25 bg-transparent text-amber-100/50 hover:border-amber-500/50 hover:text-amber-100/85'
+              }`}
+            >
+              {showLevels ? 'HIDE LEVELS' : 'LEVELS'}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowSettings((s) => !s);
+                setShowLevels(false);
+              }}
+              className={`border px-5 py-1.5 text-[10px] tracking-[0.3em] transition-colors ${
+                showSettings
+                  ? 'border-amber-400/60 text-amber-200'
+                  : 'border-amber-500/25 bg-transparent text-amber-100/50 hover:border-amber-500/50 hover:text-amber-100/85'
+              }`}
+            >
+              {showSettings ? 'HIDE SETTINGS' : 'SETTINGS'}
+            </button>
+          </div>
+          {showLevels && (
+            <div className="mt-4">
+              <LevelBrowser
+                selectedId={levelId}
+                onSelect={(id) => {
+                  setLevelId(id);
+                  // Preview the selected level's maze as the new menu backdrop.
+                  engineRef.current?.previewLevel(id);
+                }}
+              />
+            </div>
+          )}
           {showSettings && (
             <div className="mt-4">
               <VolumePanel volumes={volumes} onChange={applyVolumes} />
@@ -348,6 +462,14 @@ export default function BackroomsGame() {
           >
             RESUME
           </Button>
+
+          <button
+            type="button"
+            onClick={toMenu}
+            className="mt-4 border border-amber-500/25 bg-transparent px-5 py-1.5 text-[10px] tracking-[0.3em] text-amber-100/50 transition-colors hover:border-amber-500/50 hover:text-amber-100/85"
+          >
+            RETURN TO MENU
+          </button>
         </div>
       )}
 
@@ -362,7 +484,7 @@ export default function BackroomsGame() {
               -50%) in every frame), and the inline transform below is a
               fallback in case the animation ever fails to apply. */}
           <img
-            src={asset('/textures/monster_bright.png')}
+            src={level.monsterBright}
             alt="The Nextbot got you"
             className="jumpscare absolute left-1/2 top-1/2 h-[115vh] w-auto object-contain"
             style={{ transform: 'translate(-50%, -50%)' }}
@@ -392,6 +514,14 @@ export default function BackroomsGame() {
           >
             TRY AGAIN
           </Button>
+
+          <button
+            type="button"
+            onClick={toMenu}
+            className="mt-4 border border-amber-500/25 bg-transparent px-5 py-1.5 text-[10px] tracking-[0.3em] text-amber-100/50 transition-colors hover:border-amber-500/50 hover:text-amber-100/85"
+          >
+            RETURN TO MENU
+          </button>
         </div>
       )}
     </main>

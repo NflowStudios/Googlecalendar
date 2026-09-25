@@ -8,8 +8,6 @@
  * ============================================================================
  */
 
-import { asset } from './utils';
-
 /** ---------- WORLD ---------- */
 export const WORLD = {
   /** Number of maze cells per side of the map. 25 * 6m = 150m x 150m. */
@@ -25,8 +23,6 @@ export const WORLD = {
   /** Square pillar footprint (m) — chunky columns furnish the wide halls
    *  (break up sightlines aesthetically) without blocking your running lines. */
   PILLAR_SIZE: 1.2,
-  /** How many meters of wall one horizontal copy of Wallpaper.JPG covers. */
-  WALL_TEXTURE_W: 3.2,
   /** Probability quirks for the maze generator.
    *  TUNED FOR OPEN PLAN: low wall density + heavy doorways = wide looping
    *  halls with long sightlines, not a tight claustrophobic maze. */
@@ -122,12 +118,10 @@ export const BOT = {
   TENSION_RANGE: 30,
 } as const;
 
-/** ---------- MONSTER AUDIO (the chase loop + doppler) ---------- */
+/** ---------- MONSTER AUDIO (the chase loop + doppler) ----------
+ *  Per-level values (which FILE each level's monster sings) live in
+ *  levels.ts — these are the shared mechanics of the voice itself. */
 export const MONSTER_AUDIO = {
-  /** Where the monster's chase loop is served from (base-path aware:
-   *  /Googlecalendar/audio/… on GitHub Pages, /audio/… in local dev).
-   *  If the file is missing the monster simply hunts in silence. */
-  LOOP_URL: asset('/audio/monster-loop.mp3'),
   /** Distance (m) at which the loop becomes inaudible. Large on purpose:
    *  the sound IS the radar — you should faintly hear it stalking far away. */
   HEAR_DIST: 55,
@@ -161,17 +155,10 @@ export const MONSTER_AUDIO = {
   LOAD_RETRIES: 3,
 } as const;
 
-/** ---------- ATMOSPHERE ---------- */
+/** ---------- ATMOSPHERE ----------
+ *  Per-level mood (fog color/density, light color, flicker ratio) lives in
+ *  levels.ts — only the light-pool SIZE is global. */
 export const ATMOS = {
-  /** Yellow-brown fog color (matches classic Backrooms render). */
-  FOG_COLOR: 0x8a7b45,
-  /** Exponential fog density — thinned so you can spot the Nextbot
-   *  stalking you from ~35-40m away across the open halls. */
-  FOG_DENSITY: 0.032,
-  /** Warm fluorescent light color. */
-  LIGHT_COLOR: 0xffe6ad,
   /** How many roaming PointLights follow the player between ceiling panels. */
   LIGHT_POOL_SIZE: 5,
-  /** % of ceiling panels that are faulty / flicker. */
-  FLICKER_PANEL_RATIO: 0.16,
 } as const;

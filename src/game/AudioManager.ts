@@ -83,7 +83,14 @@ export class AudioManager {
   private monsterFilter!: BiquadFilterNode;
   private monsterPan!: StereoPannerNode;
   private monsterGain!: GainNode;
-  /** Decoded loop file (null until fetch+decode succeeds). */
+  /** The song file for the level being played (levels.ts supplies it). */
+  private monsterUrl: string | null = null;
+  /** Decoded-and-analyzed loop files, keyed by URL (one per level). */
+  private readonly loopCache = new Map<
+    string,
+    { buffer: AudioBuffer; trim: number; loopStart: number; loopEnd: number }
+  >();
+  /** Decoded loop file for the CURRENT level (null until fetch+decode). */
   private monsterBuffer: AudioBuffer | null = null;
   /** The file-backed voice, once playing. */
   private monsterSrc: AudioBufferSourceNode | null = null;
@@ -213,9 +220,39 @@ export class AudioManager {
     this.monsterGain = ctx.createGain();
     this.monsterGain.gain.value = 0;
     this.monsterFilter.connect(this.monsterPan).connect(this.monsterGain).connect(this.musicBus);
+  }
 
-    // Load the shipped chase loop (public/audio/monster-loop.mp3).
-    void this.ensureMonsterBuffer();
+  /**
+   * Point the monster's voice at the CURRENT level's song and start loading
+   * it. Called by the engine on every beginPlay / returnToMenu. Cached files
+   * (a level played earlier in the same session) apply instantly.
+   */
+  setMonsterLoop(url: string): void {
+    if (this.monsterUrl === url) return;
+    this.stopMonsterLoop();
+    this.monsterUrl = url;
+    this.loadAttempts = 0;
+    const cached = this.loopCache.get(url);
+    if (cached) {
+      this.applyLoopEntry(cached);
+    } else {
+      this.monsterBuffer = null;
+      this.monsterTrim = 1;
+      this.monsterLoopStart = 0;
+      this.monsterLoopEnd = 0;
+      void this.ensureMonsterBuffer();
+    }
+  }
+
+  /** Make a cache entry the CURRENT voice (no re-decode needed). */
+  private applyLoopEntry(e: { buffer: AudioBuffer; trim: number; loopStart: number; loopEnd: number }): void {
+    this.monsterBuffer = e.buffer;
+    this.monsterTrim = e.trim;
+    this.monsterLoopStart = e.loopStart;
+    this.monsterLoopEnd = e.loopEnd;
+    // Late landing while a hunt is already underway (level switched back)?
+    // Only relevant if the voice should be sounding.
+    if (this.monsterOn && !this.monsterSrc) this.startFileVoice();
   }
 
   // ===========================================================================
@@ -277,30 +314,32 @@ export class AudioManager {
   }
 
   /**
-   * Fetch + decode the shipped loop file. Retries a couple of times across
-   * the session (e.g. dev server was still bundling on the first try).
+   * Fetch + decode the current level's loop file. Retries a couple of times
+   * across the session (e.g. dev server was still bundling on the first try).
    */
   private async ensureMonsterBuffer(): Promise<boolean> {
+    if (!this.ctx || !this.monsterUrl) return false;
     if (this.monsterBuffer) return true;
-    if (!this.ctx || this.loading || this.loadAttempts >= MA.LOAD_RETRIES) return false;
+    if (this.loading || this.loadAttempts >= MA.LOAD_RETRIES) return false;
     this.loading = true;
     this.loadAttempts++;
+    const url = this.monsterUrl;
     try {
       // 'no-cache': always revalidate with the server, so a freshly shipped
       // loop file is picked up instead of a stale HTTP cache entry.
-      const res = await fetch(MA.LOOP_URL, { cache: 'no-cache' });
+      const res = await fetch(url, { cache: 'no-cache' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const bytes = await res.arrayBuffer();
       // decodeMonster (not a raw decodeAudioData) so the shipped file gets
       // peak normalization + the seamless-loop window trim, and so a hunt
       // already underway hot-swaps to it.
-      return await this.decodeMonster(bytes);
+      return await this.decodeMonster(bytes, url);
     } catch {
       // Missing file is an EXPECTED state — the monster then hunts in
       // silence, which is its own kind of terrifying.
       if (process.env.NODE_ENV === 'development') {
         console.info(
-          `[audio] ${MA.LOOP_URL} not available (attempt ${this.loadAttempts}/${MA.LOAD_RETRIES}) — the monster will hunt in silence.`
+          `[audio] ${url} not available (attempt ${this.loadAttempts}/${MA.LOAD_RETRIES}) — the monster will hunt in silence.`
         );
       }
       return false;
@@ -310,7 +349,7 @@ export class AudioManager {
   }
 
   /** Decode + analyze the monster-voice file, then hot-swap it in. */
-  private async decodeMonster(data: ArrayBuffer): Promise<boolean> {
+  private async decodeMonster(data: ArrayBuffer, url: string): Promise<boolean> {
     const ctx = this.ctx;
     if (!ctx) return false;
     try {
@@ -327,7 +366,7 @@ export class AudioManager {
         if (a > peak) peak = a;
       }
       // Normalize so the loop is always present in the mix.
-      this.monsterTrim = peak > 0.002 ? clamp(0.9 / peak, 0.25, 6) : 1;
+      const trim = peak > 0.002 ? clamp(0.9 / peak, 0.25, 6) : 1;
       // Trim edge silence => the loop cycles without a dead gap.
       const thr = 0.012;
       let s = 0;
@@ -336,21 +375,20 @@ export class AudioManager {
       while (e > s && Math.abs(ch[e]) < thr) e -= 64;
       s = Math.max(0, s - 64);
       e = Math.min(n - 1, e + 64);
-      this.monsterLoopStart = s / buf.sampleRate;
-      this.monsterLoopEnd = e + 1 < n ? (e + 1) / buf.sampleRate : 0; // 0 = full
+      const loopStart = s / buf.sampleRate;
+      const loopEnd = e + 1 < n ? (e + 1) / buf.sampleRate : 0; // 0 = full
 
-      this.monsterBuffer = buf;
-
-      // Hot-swap: if a hunt is already underway (e.g. the file landed a
-      // moment after the bot spawned), start the real loop immediately.
-      if (this.monsterOn && !this.monsterSrc) {
-        this.startFileVoice();
-      }
+      const entry = { buffer: buf, trim, loopStart, loopEnd };
+      this.loopCache.set(url, entry);
+      // Only swap the CURRENT voice if this decode is still the active song.
+      if (url === this.monsterUrl) this.applyLoopEntry(entry);
       return true;
     } catch {
-      this.monsterTrim = 1;
-      this.monsterLoopStart = 0;
-      this.monsterLoopEnd = 0;
+      if (url === this.monsterUrl) {
+        this.monsterTrim = 1;
+        this.monsterLoopStart = 0;
+        this.monsterLoopEnd = 0;
+      }
       return false;
     }
   }
